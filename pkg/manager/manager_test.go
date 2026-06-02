@@ -89,10 +89,10 @@ func Test_selectCloudAccountProfile(t *testing.T) {
 			wantProfile: "azure-2",
 		},
 		{
-			name:     "metrics error returns error",
+			name:     "metrics error falls back to default account",
 			platform: "aws",
 			metrics:  map[string]lease.Metrics{},
-			wantErr:  true,
+			wantNil:  true,
 		},
 	}
 	for _, tt := range tests {
