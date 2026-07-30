@@ -118,7 +118,7 @@ func (c *SlackWorkflowClient) SaveWorkflowStepConfiguration(workflowStepEditID s
 	return c.postJSON("workflows.updateStep", r)
 }
 
-func (c *SlackWorkflowClient) postJSON(method string, payload interface{}) error {
+func (c *SlackWorkflowClient) postJSON(method string, payload any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
