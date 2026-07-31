@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"text/template"
+	"time"
 )
 
 type workflowSubmit interface {
@@ -34,12 +35,12 @@ type workflowStepExecuteEvent struct {
 }
 
 type eventWorkflowStep struct {
-	WorkflowStepExecuteID string                `json:"workflow_step_execute_id"`
-	WorkflowID            string                `json:"workflow_id"`
-	WorkflowInstanceID    string                `json:"workflow_instance_id"`
-	StepID                string                `json:"step_id"`
-	Inputs                *WorkflowStepInputs   `json:"inputs,omitempty"`
-	Outputs               *[]WorkflowStepOutput `json:"outputs,omitempty"`
+	WorkflowStepExecuteID string               `json:"workflow_step_execute_id"`
+	WorkflowID            string               `json:"workflow_id"`
+	WorkflowInstanceID    string               `json:"workflow_instance_id"`
+	StepID                string               `json:"step_id"`
+	Inputs                WorkflowStepInputs   `json:"inputs,omitempty"`
+	Outputs               []WorkflowStepOutput `json:"outputs,omitempty"`
 }
 
 type WorkflowStepInputElement struct {
@@ -71,9 +72,9 @@ func NewSlackWorkflowClient(token string) *SlackWorkflowClient {
 }
 
 type workflowUpdateStepRequest struct {
-	WorkflowStepEditID string                `json:"workflow_step_edit_id"`
-	Inputs             *WorkflowStepInputs   `json:"inputs,omitempty"`
-	Outputs            *[]WorkflowStepOutput `json:"outputs,omitempty"`
+	WorkflowStepEditID string               `json:"workflow_step_edit_id"`
+	Inputs             WorkflowStepInputs   `json:"inputs,omitempty"`
+	Outputs            []WorkflowStepOutput `json:"outputs,omitempty"`
 }
 
 type workflowStepCompletedRequest struct {
@@ -109,7 +110,7 @@ func (c *SlackWorkflowClient) WorkflowStepFailed(workflowStepExecuteID string, e
 	return c.postJSON("workflows.stepFailed", r)
 }
 
-func (c *SlackWorkflowClient) SaveWorkflowStepConfiguration(workflowStepEditID string, inputs *WorkflowStepInputs, outputs *[]WorkflowStepOutput) error {
+func (c *SlackWorkflowClient) SaveWorkflowStepConfiguration(workflowStepEditID string, inputs WorkflowStepInputs, outputs []WorkflowStepOutput) error {
 	r := &workflowUpdateStepRequest{
 		WorkflowStepEditID: workflowStepEditID,
 		Inputs:             inputs,
@@ -123,7 +124,9 @@ func (c *SlackWorkflowClient) postJSON(method string, payload any) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(context.Background(), "POST", c.endpoint+method, bytes.NewReader(body))
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "POST", c.endpoint+method, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

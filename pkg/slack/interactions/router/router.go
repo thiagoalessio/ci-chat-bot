@@ -96,7 +96,7 @@ func (r *modalRouter) Handle(callback *slack.InteractionCallback, logger *logrus
 	case slack.InteractionTypeViewSubmission:
 		if metadataToIdentifier(callback.View.PrivateMetadata, logger) == string(slack.InteractionTypeWorkflowStepEdit) {
 			input, output := stepsFromApp.StepFromAppSubmit(callback)
-			return nil, r.slackClient.SaveWorkflowStepConfiguration(callback.Value, &input, &output)
+			return nil, r.slackClient.SaveWorkflowStepConfiguration(callback.Value, input, output)
 		}
 		return r.delegate(callback, logger)
 	default:
@@ -123,7 +123,7 @@ func isMessageButtonPress(callback *slack.InteractionCallback) bool {
 
 type slackClient interface {
 	OpenView(triggerID string, view slack.ModalViewRequest) (*slack.ViewResponse, error)
-	SaveWorkflowStepConfiguration(workflowStepEditID string, inputs *workflowSubmissionEvents.WorkflowStepInputs, outputs *[]workflowSubmissionEvents.WorkflowStepOutput) error
+	SaveWorkflowStepConfiguration(workflowStepEditID string, inputs workflowSubmissionEvents.WorkflowStepInputs, outputs []workflowSubmissionEvents.WorkflowStepOutput) error
 }
 
 type combinedSlackClient struct {

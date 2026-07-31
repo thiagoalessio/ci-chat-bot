@@ -56,7 +56,7 @@ func Handler(token string, filer jira.IssueFiler) events.PartialHandler {
 }
 
 func checkTicketType(event *workflowStepExecuteEvent) (ticketType string, supported bool) {
-	for key, output := range *event.WorkflowStep.Inputs {
+	for key, output := range event.WorkflowStep.Inputs {
 		if key == "ticket_type" {
 			switch output.Value {
 			case string(BugIdentifier):
@@ -100,7 +100,7 @@ func handleJiraStep(client workflowSubmit, event *workflowStepExecuteEvent, file
 		}
 	}
 	outgoingOutputs := make(map[string]string)
-	for _, incomingOutputs := range *event.WorkflowStep.Outputs {
+	for _, incomingOutputs := range event.WorkflowStep.Outputs {
 		switch incomingOutputs.Name {
 		case "issue.key":
 			outgoingOutputs[incomingOutputs.Name] = issue.Key
@@ -119,7 +119,7 @@ func fileTicket(event *workflowStepExecuteEvent, parameters JiraIssueParameters,
 	title := "not_defined"
 	reporter := "not_defined"
 	data := make(map[string]string)
-	for key, inputs := range *event.WorkflowStep.Inputs {
+	for key, inputs := range event.WorkflowStep.Inputs {
 		if key == TicketTitle {
 			title = inputs.Value
 			continue
