@@ -33,7 +33,10 @@ const (
 )
 
 func Handler(token string, filer jira.IssueFiler) events.PartialHandler {
-	wc := NewSlackWorkflowClient(token)
+	return newHandler(NewSlackWorkflowClient(token), filer)
+}
+
+func newHandler(wc workflowSubmit, filer jira.IssueFiler) events.PartialHandler {
 	return events.PartialHandlerFunc("workflow-execution-event", func(callback *slackevents.EventsAPIEvent, logger *logrus.Entry) (handled bool, err error) {
 		if callback.Type != slackevents.CallbackEvent {
 			return false, nil

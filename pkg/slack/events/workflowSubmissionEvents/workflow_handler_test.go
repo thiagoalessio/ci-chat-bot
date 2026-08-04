@@ -8,12 +8,64 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	jiraAPI "github.com/andygrunwald/go-jira"
+	"github.com/sirupsen/logrus"
 	"github.com/slack-go/slack/slackevents"
 )
 
+type mockIssueFiler struct {
+	issue *jiraAPI.Issue
+	err   error
+	calls []mockFileIssueCall
+}
+
+type mockFileIssueCall struct {
+	IssueType   string
+	Title       string
+	Description string
+	Reporter    string
+}
+
+func (m *mockIssueFiler) FileIssue(issueType, title, description, reporter string, _ *logrus.Entry) (*jiraAPI.Issue, error) {
+	m.calls = append(m.calls, mockFileIssueCall{
+		IssueType:   issueType,
+		Title:       title,
+		Description: description,
+		Reporter:    reporter,
+	})
+	return m.issue, m.err
+}
+
+type mockWorkflowClient struct {
+	completedCalls []mockCompletedCall
+	failedCalls    []mockFailedCall
+	completeErr    error
+	failErr        error
+}
+
+type mockCompletedCall struct {
+	ExecuteID string
+	Outputs   map[string]string
+}
+
+type mockFailedCall struct {
+	ExecuteID string
+	Message   string
+}
+
+func (m *mockWorkflowClient) WorkflowStepCompleted(execID string, outputs map[string]string) error {
+	m.completedCalls = append(m.completedCalls, mockCompletedCall{ExecuteID: execID, Outputs: outputs})
+	return m.completeErr
+}
+
+func (m *mockWorkflowClient) WorkflowStepFailed(execID string, msg string) error {
+	m.failedCalls = append(m.failedCalls, mockFailedCall{ExecuteID: execID, Message: msg})
+	return m.failErr
+}
+
 func TestSlackWorkflowClientSerialization(t *testing.T) {
 	t.Run("stepCompleted sends correct JSON", func(t *testing.T) {
-		var gotBody map[string]interface{}
+		var gotBody map[string]any
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			body, _ := io.ReadAll(r.Body)
 			if err := json.Unmarshal(body, &gotBody); err != nil {
@@ -42,14 +94,14 @@ func TestSlackWorkflowClientSerialization(t *testing.T) {
 		if gotBody["workflow_step_execute_id"] != "exec-id-1" {
 			t.Errorf("workflow_step_execute_id = %v, want exec-id-1", gotBody["workflow_step_execute_id"])
 		}
-		outputsMap := gotBody["outputs"].(map[string]interface{})
+		outputsMap := gotBody["outputs"].(map[string]any)
 		if outputsMap["issue.key"] != "PROJ-123" {
 			t.Errorf("outputs[issue.key] = %v, want PROJ-123", outputsMap["issue.key"])
 		}
 	})
 
 	t.Run("stepFailed sends correct JSON", func(t *testing.T) {
-		var gotBody map[string]interface{}
+		var gotBody map[string]any
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			body, _ := io.ReadAll(r.Body)
 			if err := json.Unmarshal(body, &gotBody); err != nil {
@@ -69,14 +121,14 @@ func TestSlackWorkflowClientSerialization(t *testing.T) {
 		if gotBody["workflow_step_execute_id"] != "exec-id-2" {
 			t.Errorf("workflow_step_execute_id = %v, want exec-id-2", gotBody["workflow_step_execute_id"])
 		}
-		errorObj := gotBody["error"].(map[string]interface{})
+		errorObj := gotBody["error"].(map[string]any)
 		if errorObj["message"] != "something broke" {
 			t.Errorf("error.message = %v, want 'something broke'", errorObj["message"])
 		}
 	})
 
 	t.Run("saveWorkflowStepConfiguration sends correct JSON", func(t *testing.T) {
-		var gotBody map[string]interface{}
+		var gotBody map[string]any
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			body, _ := io.ReadAll(r.Body)
 			if err := json.Unmarshal(body, &gotBody); err != nil {
@@ -103,8 +155,8 @@ func TestSlackWorkflowClientSerialization(t *testing.T) {
 		if gotBody["workflow_step_edit_id"] != "edit-id-1" {
 			t.Errorf("workflow_step_edit_id = %v, want edit-id-1", gotBody["workflow_step_edit_id"])
 		}
-		inputsMap := gotBody["inputs"].(map[string]interface{})
-		ticketType := inputsMap["ticket_type"].(map[string]interface{})
+		inputsMap := gotBody["inputs"].(map[string]any)
+		ticketType := inputsMap["ticket_type"].(map[string]any)
 		if ticketType["value"] != "bug" {
 			t.Errorf("inputs.ticket_type.value = %v, want bug", ticketType["value"])
 		}
@@ -150,7 +202,7 @@ func TestWorkflowStepExecuteEventParsing(t *testing.T) {
 	}`
 
 	// Simulate the marshal/unmarshal round-trip the handler does
-	var innerData interface{}
+	var innerData any
 	if err := json.Unmarshal([]byte(rawEvent), &innerData); err != nil {
 		t.Fatalf("failed to unmarshal raw event: %v", err)
 	}
@@ -217,10 +269,6 @@ func TestHandlerRoutesWorkflowStepExecute(t *testing.T) {
 }
 
 func TestHandlerEndToEndJiraTicket(t *testing.T) {
-	// Simulate the exact JSON that Slack sends for a workflow_step_execute event,
-	// parse it through slackevents.ParseEvent (which requires the init()
-	// registration), then through the handler's marshal/unmarshal round-trip.
-
 	rawPayload := []byte(`{
 		"token": "fake",
 		"team_id": "T0001",
@@ -236,7 +284,12 @@ func TestHandlerEndToEndJiraTicket(t *testing.T) {
 				"inputs": {
 					"ticket_type": {"value": "bug", "skip_variable_replacement": false},
 					"ticket_title": {"value": "Test Bug"},
-					"user_details": {"value": "U12345"}
+					"user_details": {"value": "U12345"},
+					"incorrect_behaviour": {"value": "it breaks"},
+					"expected_behaviour": {"value": "it works"},
+					"impact": {"value": "high"},
+					"affected_component": {"value": "Testing"},
+					"is_reproducible": {"value": "yes"}
 				},
 				"outputs": [
 					{"name": "issue.key", "type": "text", "label": "Issue Key"},
@@ -250,44 +303,111 @@ func TestHandlerEndToEndJiraTicket(t *testing.T) {
 		"event_time": 1234567890
 	}`)
 
-	// Parse the same way the bot's handleEvent does (slackevents.ParseEvent)
-	event, err := slackevents.ParseEvent(rawPayload, slackevents.OptionNoVerifyToken())
-	if err != nil {
-		t.Fatalf("ParseEvent failed (init() registration may be missing): %v", err)
-	}
+	t.Run("successful jira filing calls WorkflowStepCompleted", func(t *testing.T) {
+		event, err := slackevents.ParseEvent(rawPayload, slackevents.OptionNoVerifyToken())
+		if err != nil {
+			t.Fatalf("ParseEvent failed (init() registration may be missing): %v", err)
+		}
 
-	if event.Type != slackevents.CallbackEvent {
-		t.Fatalf("event.Type = %q, want %q", event.Type, slackevents.CallbackEvent)
-	}
+		filer := &mockIssueFiler{issue: &jiraAPI.Issue{Key: "OCPCRT-999"}}
+		wc := &mockWorkflowClient{}
+		handler := newHandler(wc, filer)
+		logger := logrus.NewEntry(logrus.New())
 
-	// Now do the same marshal/unmarshal the handler does
-	raw, err := json.Marshal(event.InnerEvent.Data)
-	if err != nil {
-		t.Fatalf("failed to marshal InnerEvent.Data: %v", err)
-	}
+		handled, err := handler.Handle(&event, logger)
+		if err != nil {
+			t.Fatalf("Handle returned error: %v", err)
+		}
+		if !handled {
+			t.Fatal("expected handled=true for jira_ticket callback")
+		}
 
-	var wsEvent workflowStepExecuteEvent
-	if err := json.Unmarshal(raw, &wsEvent); err != nil {
-		t.Fatalf("failed to unmarshal workflowStepExecuteEvent: %v", err)
-	}
+		if len(filer.calls) != 1 {
+			t.Fatalf("FileIssue called %d times, want 1", len(filer.calls))
+		}
+		if filer.calls[0].IssueType != "Bug" {
+			t.Errorf("IssueType = %q, want Bug", filer.calls[0].IssueType)
+		}
+		if filer.calls[0].Title != "Test Bug" {
+			t.Errorf("Title = %q, want 'Test Bug'", filer.calls[0].Title)
+		}
+		if filer.calls[0].Reporter != "U12345" {
+			t.Errorf("Reporter = %q, want U12345", filer.calls[0].Reporter)
+		}
 
-	if wsEvent.Type != "workflow_step_execute" {
-		t.Errorf("event type = %q, want workflow_step_execute", wsEvent.Type)
-	}
-	if wsEvent.CallbackID != "jira_ticket" {
-		t.Errorf("callback_id = %q, want jira_ticket", wsEvent.CallbackID)
-	}
-	if wsEvent.WorkflowStep.WorkflowStepExecuteID != "exec-test-123" {
-		t.Errorf("execute_id = %q, want exec-test-123", wsEvent.WorkflowStep.WorkflowStepExecuteID)
-	}
-	if wsEvent.WorkflowStep.Inputs["ticket_type"].Value != "bug" {
-		t.Errorf("ticket_type = %q, want bug", wsEvent.WorkflowStep.Inputs["ticket_type"].Value)
-	}
-	if wsEvent.WorkflowStep.Inputs["ticket_title"].Value != "Test Bug" {
-		t.Errorf("ticket_title = %q, want 'Test Bug'", wsEvent.WorkflowStep.Inputs["ticket_title"].Value)
-	}
-	if len(wsEvent.WorkflowStep.Outputs) != 2 {
-		t.Errorf("outputs count = %d, want 2", len(wsEvent.WorkflowStep.Outputs))
-	}
+		if len(wc.completedCalls) != 1 {
+			t.Fatalf("WorkflowStepCompleted called %d times, want 1", len(wc.completedCalls))
+		}
+		if wc.completedCalls[0].ExecuteID != "exec-test-123" {
+			t.Errorf("ExecuteID = %q, want exec-test-123", wc.completedCalls[0].ExecuteID)
+		}
+		if wc.completedCalls[0].Outputs["issue.key"] != "OCPCRT-999" {
+			t.Errorf("issue.key = %q, want OCPCRT-999", wc.completedCalls[0].Outputs["issue.key"])
+		}
+		if wc.completedCalls[0].Outputs["issue.link"] != "https://issues.redhat.com/browse/OCPCRT-999" {
+			t.Errorf("issue.link = %q, want OCPCRT-999 browse URL", wc.completedCalls[0].Outputs["issue.link"])
+		}
+		if len(wc.failedCalls) != 0 {
+			t.Errorf("WorkflowStepFailed called %d times, want 0", len(wc.failedCalls))
+		}
+	})
 
+	t.Run("jira filing error calls WorkflowStepFailed", func(t *testing.T) {
+		event, err := slackevents.ParseEvent(rawPayload, slackevents.OptionNoVerifyToken())
+		if err != nil {
+			t.Fatalf("ParseEvent failed: %v", err)
+		}
+
+		filer := &mockIssueFiler{err: fmt.Errorf("jira unavailable")}
+		wc := &mockWorkflowClient{}
+		handler := newHandler(wc, filer)
+		logger := logrus.NewEntry(logrus.New())
+
+		handled, err := handler.Handle(&event, logger)
+		if handled {
+			t.Error("expected handled=false when jira filing fails")
+		}
+		if err == nil || err.Error() != "jira unavailable" {
+			t.Errorf("err = %v, want 'jira unavailable'", err)
+		}
+
+		if len(wc.failedCalls) != 1 {
+			t.Fatalf("WorkflowStepFailed called %d times, want 1", len(wc.failedCalls))
+		}
+		if wc.failedCalls[0].ExecuteID != "exec-test-123" {
+			t.Errorf("ExecuteID = %q, want exec-test-123", wc.failedCalls[0].ExecuteID)
+		}
+		if wc.failedCalls[0].Message != "jira unavailable" {
+			t.Errorf("Message = %q, want 'jira unavailable'", wc.failedCalls[0].Message)
+		}
+		if len(wc.completedCalls) != 0 {
+			t.Errorf("WorkflowStepCompleted called %d times, want 0", len(wc.completedCalls))
+		}
+	})
+
+	t.Run("nil filer calls WorkflowStepFailed", func(t *testing.T) {
+		event, err := slackevents.ParseEvent(rawPayload, slackevents.OptionNoVerifyToken())
+		if err != nil {
+			t.Fatalf("ParseEvent failed: %v", err)
+		}
+
+		wc := &mockWorkflowClient{}
+		handler := newHandler(wc, nil)
+		logger := logrus.NewEntry(logrus.New())
+
+		handled, err := handler.Handle(&event, logger)
+		if handled {
+			t.Error("expected handled=false when filer is nil")
+		}
+		if err == nil || err.Error() != "jira client is not configured" {
+			t.Errorf("err = %v, want 'jira client is not configured'", err)
+		}
+
+		if len(wc.failedCalls) != 1 {
+			t.Fatalf("WorkflowStepFailed called %d times, want 1", len(wc.failedCalls))
+		}
+		if wc.failedCalls[0].Message != "jira client is not configured" {
+			t.Errorf("Message = %q, want 'jira client is not configured'", wc.failedCalls[0].Message)
+		}
+	})
 }

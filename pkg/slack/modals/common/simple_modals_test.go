@@ -160,23 +160,23 @@ func TestAppendKubeconfigBlockJSON(t *testing.T) {
 		t.Fatalf("failed to marshal view: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("failed to unmarshal JSON: %v", err)
 	}
 
-	blocks := parsed["blocks"].([]interface{})
-	richTextBlock := blocks[2].(map[string]interface{})
+	blocks := parsed["blocks"].([]any)
+	richTextBlock := blocks[2].(map[string]any)
 	if richTextBlock["type"] != "rich_text" {
 		t.Errorf("rich text block type = %q, want %q", richTextBlock["type"], "rich_text")
 	}
-	elements := richTextBlock["elements"].([]interface{})
-	preformatted := elements[0].(map[string]interface{})
+	elements := richTextBlock["elements"].([]any)
+	preformatted := elements[0].(map[string]any)
 	if preformatted["type"] != "rich_text_preformatted" {
 		t.Errorf("preformatted type = %q, want %q", preformatted["type"], "rich_text_preformatted")
 	}
-	innerElements := preformatted["elements"].([]interface{})
-	textEl := innerElements[0].(map[string]interface{})
+	innerElements := preformatted["elements"].([]any)
+	textEl := innerElements[0].(map[string]any)
 	if textEl["type"] != "text" {
 		t.Errorf("text element type = %q, want %q", textEl["type"], "text")
 	}
@@ -198,7 +198,7 @@ func TestEmojiFieldSerialization(t *testing.T) {
 		t.Fatalf("failed to marshal TextBlockObject: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("failed to unmarshal JSON: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestEmojiFieldSerialization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to marshal TextBlockObject with nil emoji: %v", err)
 	}
-	var parsed2 map[string]interface{}
+	var parsed2 map[string]any
 	if err := json.Unmarshal(data, &parsed2); err != nil {
 		t.Fatalf("failed to unmarshal JSON: %v", err)
 	}
