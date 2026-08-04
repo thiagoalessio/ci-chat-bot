@@ -12,6 +12,15 @@ import (
 	"github.com/slack-go/slack/slackevents"
 )
 
+func init() {
+	// Re-register workflow_step_execute in the event mapping.
+	// The slack-go v0.23+ library removed WorkflowStepExecuteEvent but Slack
+	// still sends this event type for deprecated Steps from Apps integrations.
+	// Without this registration, slackevents.ParseEvent rejects the event
+	// before our handler ever sees it.
+	slackevents.EventsAPIInnerEventMapping[slackevents.WorkflowStepExecute] = workflowStepExecuteEvent{}
+}
+
 const (
 	// BlockIdTitle is the block identifier to use for inputs
 	// that should be used as the title of a Jira issue
@@ -74,6 +83,9 @@ func checkTicketType(event *workflowStepExecuteEvent) (ticketType string, suppor
 }
 
 func handleJiraStep(client workflowSubmit, event *workflowStepExecuteEvent, filer jira.IssueFiler) error {
+	if filer == nil {
+		return fmt.Errorf("jira client is not configured")
+	}
 	ticketType, isSupported := checkTicketType(event)
 
 	if !isSupported {
