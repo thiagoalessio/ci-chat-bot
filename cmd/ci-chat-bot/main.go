@@ -89,8 +89,6 @@ type options struct {
 	rosaBillingAccount       string
 	overrideLaunchLabel      string
 	overrideRosaSecretName   string
-
-	jiraOptions flagutil.JiraOptions
 }
 
 func (o *options) Validate() error {
@@ -152,7 +150,6 @@ func run() error {
 	opt.GitHubOptions.AddFlags(emptyFlags)
 	opt.KubernetesOptions.AddFlags(emptyFlags)
 	opt.InstrumentationOptions.AddFlags(emptyFlags)
-	opt.jiraOptions.AddFlags(emptyFlags)
 	pflag.CommandLine.AddGoFlagSet(emptyFlags)
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
@@ -417,16 +414,10 @@ func run() error {
 	}
 
 	bot := slack.NewBot(botToken, botSigningSecret, opt.GracePeriod, opt.Port, &workflows)
-	jiraclient, err := opt.jiraOptions.Client()
 	httpClient := &http.Client{Timeout: 60 * time.Second}
-	if err != nil {
-		klog.Errorf("failed to load the Jira Client: %s", err)
-		Start(bot, nil, jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics)
-	} else {
-		Start(bot, jiraclient.JiraClient(), jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics)
-	}
+	Start(bot, jobManager, httpClient, health, opt.InstrumentationOptions, clusterBotMetrics)
 
-	return err
+	return nil
 }
 
 func processKubeConfigs(kubeConfigs map[string]rest.Config) (utils.BuildClusterClientConfigMap, error) {

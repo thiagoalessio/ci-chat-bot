@@ -1,10 +1,8 @@
 package router
 
 import (
-	"github.com/openshift/ci-chat-bot/pkg/jira"
 	"github.com/openshift/ci-chat-bot/pkg/manager"
 	"github.com/openshift/ci-chat-bot/pkg/slack/events/apphome"
-	"github.com/openshift/ci-chat-bot/pkg/slack/events/workflowSubmissionEvents"
 	"github.com/openshift/ci-chat-bot/pkg/slack/mention"
 	slackCommandParser "github.com/openshift/ci-chat-bot/pkg/slack/parser"
 	"github.com/slack-go/slack"
@@ -15,11 +13,10 @@ import (
 
 // ForEvents returns a Handler that appropriately routes
 // event callbacks for the handlers we know about
-func ForEvents(client *slack.Client, manager manager.JobManager, botCommands []slackCommandParser.BotCommand, filer jira.IssueFiler, botToken string) events.Handler {
+func ForEvents(client *slack.Client, manager manager.JobManager, botCommands []slackCommandParser.BotCommand) events.Handler {
 	return events.MultiHandler(
 		messages.Handle(client, manager, botCommands),
 		mention.Handler(client),
-		workflowSubmissionEvents.Handler(botToken, filer),
 		apphome.Handler(client, manager),
 	)
 }
