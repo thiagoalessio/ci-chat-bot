@@ -146,6 +146,13 @@ func run() error {
 	pflag.StringVar(&opt.rosaBillingAccount, "rosa-billingAccount-path", "", "Path to the Billing Account ID.")
 	pflag.BoolVar(&opt.disableRosa, "disable-rosa", false, "Do not load the rosa client")
 
+	// Deprecated: Jira integration has been removed. These flags are kept
+	// for backward compatibility with existing deployment configurations.
+	var deprecatedJiraEndpoint, deprecatedJiraUsername, deprecatedJiraPasswordFile string
+	pflag.StringVar(&deprecatedJiraEndpoint, "jira-endpoint", "", "Deprecated: Jira integration has been removed")
+	pflag.StringVar(&deprecatedJiraUsername, "jira-username", "", "Deprecated: Jira integration has been removed")
+	pflag.StringVar(&deprecatedJiraPasswordFile, "jira-password-file", "", "Deprecated: Jira integration has been removed")
+
 	opt.prowconfig.AddFlags(emptyFlags)
 	opt.GitHubOptions.AddFlags(emptyFlags)
 	opt.KubernetesOptions.AddFlags(emptyFlags)
@@ -153,6 +160,11 @@ func run() error {
 	pflag.CommandLine.AddGoFlagSet(emptyFlags)
 	pflag.Parse()
 	klog.SetOutput(os.Stderr)
+
+	if deprecatedJiraEndpoint != "" || deprecatedJiraUsername != "" || deprecatedJiraPasswordFile != "" {
+		klog.Warning("Jira flags (--jira-endpoint, --jira-username, --jira-password-file) are deprecated and will be removed in a future release. Jira integration has been removed.")
+	}
+
 	// let k8s know that we're alive
 	health := pjutil.NewHealthOnPort(opt.InstrumentationOptions.HealthPort)
 
