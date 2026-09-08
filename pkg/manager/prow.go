@@ -603,11 +603,11 @@ func (m *jobManager) newJob(job *Job) (string, error) {
 		}
 	}
 
-	// if an alternate cloud account was selected for lease balancing, apply it
-	if job.CloudAccountProfile != nil {
-		p := job.CloudAccountProfile
-		if err := applyClusterProfile(pj, sourceConfig, p.ProfileName, p.ProfileSecret, p.AccountDomain); err != nil {
-			return "", fmt.Errorf("failed applying cluster profile %q: %w", p.ProfileName, err)
+	// if a cluster-profile set was selected, apply it so Test Platform picks
+	// and balances the underlying account at runtime
+	if job.CloudProfileSet != "" {
+		if err := applyClusterProfile(pj, sourceConfig, job.CloudProfileSet); err != nil {
+			return "", fmt.Errorf("failed applying cluster profile %q: %w", job.CloudProfileSet, err)
 		}
 	}
 
@@ -1812,18 +1812,13 @@ func (e *resolvedEnvironment) Lookup(name string) string {
 	return ""
 }
 
-func applyClusterProfile(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration, profileName, profileSecret, accountDomain string) error {
+// applyClusterProfile points the job's `launch` test at the given cluster
+// profile (typically a profile set such as "openshift-org-gcp"). Only the
+// cloud-cluster-profile label and the launch test's ClusterProfile are set;
+// the per-account secret volume and BASE_DOMAIN are intentionally left alone,
+// as the runtime resolves those from the account the profile set selects.
+func applyClusterProfile(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBuildConfiguration, profileName string) error {
 	job.Labels["ci-operator.openshift.io/cloud-cluster-profile"] = profileName
-	for index, volume := range job.Spec.PodSpec.Volumes {
-		// TODO: only some ci-chat-bot jobs have this; check if they can all be removed
-		if volume.Name == "cluster-profile" {
-			if volume.Projected == nil {
-				volume.Projected = &corev1.ProjectedVolumeSource{}
-			}
-			volume.Projected.Sources = []corev1.VolumeProjection{{Secret: &corev1.SecretProjection{LocalObjectReference: corev1.LocalObjectReference{Name: profileSecret}}}}
-			job.Spec.PodSpec.Volumes[index] = volume
-		}
-	}
 	var matchedTarget *citools.TestStepConfiguration
 	for _, test := range sourceConfig.Tests {
 		if test.As == "launch" {
@@ -1838,8 +1833,5 @@ func applyClusterProfile(job *prowapiv1.ProwJob, sourceConfig *citools.ReleaseBu
 		return fmt.Errorf("invalid job; `launch` test is not a multistage test")
 	}
 	matchedTarget.MultiStageTestConfiguration.ClusterProfile = citools.ClusterProfile(profileName)
-	if accountDomain != "" && matchedTarget.MultiStageTestConfiguration != nil && matchedTarget.MultiStageTestConfiguration.Environment != nil {
-		matchedTarget.MultiStageTestConfiguration.Environment["BASE_DOMAIN"] = accountDomain
-	}
 	return nil
 }

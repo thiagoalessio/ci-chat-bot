@@ -108,65 +108,15 @@ var HypershiftSupportedVersions = HypershiftSupportedVersionsType{}
 var reBranchVersion = regexp.MustCompile(`^(openshift-|release-)(\d+\.\d+)$`)
 var reMajorMinorVersion = regexp.MustCompile(`^(\d+)\.(\d+)$`)
 
-// platformQuotaSlices maps each cloud platform to its available quota-slice
-// accounts. The first entry is the primary (default) account. Subsequent entries
-// are alternates that can be selected when they have more free resources.
-var platformQuotaSlices = map[string][]CloudAccountProfile{
-	"aws": {
-		{QuotaSlice: "aws-quota-slice"},
-		{
-			QuotaSlice:    "aws-2-quota-slice",
-			ProfileName:   "aws-2",
-			ProfileSecret: "cluster-secrets-aws-2",
-			AccountDomain: "aws-2.ci.openshift.org",
-		},
-	},
-	"azure": {
-		{QuotaSlice: "azure4-quota-slice"},
-		{
-			QuotaSlice:    "azure-2-quota-slice",
-			ProfileName:   "azure-2",
-			ProfileSecret: "cluster-secrets-azure-2",
-			AccountDomain: "ci2.azure.devcluster.openshift.com",
-		},
-	},
-	"gcp": {
-		{QuotaSlice: "gcp-quota-slice"},
-		{
-			QuotaSlice:    "gcp-openshift-gce-devel-ci-2-quota-slice",
-			ProfileName:   "gcp-openshift-gce-devel-ci-2",
-			ProfileSecret: "cluster-secrets-gcp-openshift-gce-devel-ci-2",
-		},
-	},
-}
-
-// selectCloudAccountProfile queries Boskos metrics for each quota-slice
-// candidate for the given platform and returns the profile with the most free
-// resources. Returns nil if the platform has no configured accounts, if the
-// primary (index 0) has the most free resources (no conversion needed), or if
-// Boskos metrics are unavailable (falls back to the default account).
-func selectCloudAccountProfile(platform string, lClient LeaseClient) (*CloudAccountProfile, error) {
-	accounts, ok := platformQuotaSlices[platform]
-	if !ok || len(accounts) < 2 {
-		return nil, nil
-	}
-	bestIdx := 0
-	bestFree := -1
-	for i := range accounts {
-		metrics, err := lClient.Metrics(accounts[i].QuotaSlice)
-		if err != nil {
-			klog.Warningf("Failed to get metrics for %q leases, falling back to default account: %v", accounts[i].QuotaSlice, err)
-			return nil, nil
-		}
-		if metrics.Free > bestFree {
-			bestIdx = i
-			bestFree = metrics.Free
-		}
-	}
-	if bestIdx == 0 {
-		return nil, nil
-	}
-	return &accounts[bestIdx], nil
+// platformProfileSets maps each cloud platform to its cluster-profile set.
+// A profile set (e.g. "openshift-org-gcp") is resolved by Test Platform at job
+// runtime, which randomly selects one of the underlying "regular" cluster
+// profiles. This delegates account dispersement to Test Platform rather than
+// ClusterBot querying Boskos and choosing an account itself. See OCPCRT-450.
+var platformProfileSets = map[string]string{
+	"aws":   "openshift-org-aws",
+	"azure": "openshift-org-azure",
+	"gcp":   "openshift-org-gcp",
 }
 
 func (j Job) IsComplete() bool {
@@ -2282,13 +2232,11 @@ func (m *jobManager) LaunchJobForUser(req *JobRequest) (string, error) {
 
 	klog.Infof("Job %q requested by user %q with mode %s prow job %s(%s) - params=%s, inputs=%#v", job.Name, req.User, job.Mode, job.JobName, job.BuildCluster, paramsToString(job.JobParams), job.Inputs)
 
-	// check what leases are available for platform
-	if req.Architecture == "amd64" && m.lClient != nil {
-		profile, err := selectCloudAccountProfile(req.Platform, m.lClient)
-		if err != nil {
-			return "", err
-		}
-		job.CloudAccountProfile = profile
+	// Delegate account dispersement to Test Platform via the platform's
+	// cluster-profile set, which randomly selects an underlying account at
+	// runtime. Non-amd64 launches keep the default per-platform profile.
+	if req.Architecture == "amd64" {
+		job.CloudProfileSet = platformProfileSets[req.Platform]
 	}
 
 	msg, err := func() (string, error) {
